@@ -42,10 +42,11 @@
 
 | 用途 | 代表包 |
 |---|---|
-| 系统 / LuCI | `luci`（`luci-mod-*`）、`luci-theme-argon` + `luci-app-argon-config`、`luci-app-commands`、`luci-app-ttyd` + `ttyd`、`luci-app-package-manager` |
-| 网络 | `dnsmasq-full`、`odhcpd-ipv6only`、`firewall4` + `nftables-json`、`kmod-nft-fullcone`、`kmod-nf-flow`、`sqm-scripts`、`miniupnpd-nftables`、`ddns-scripts-{aliyun,cloudflare,dnspod}` |
+| 系统 / LuCI | `luci`（`luci-mod-*`）、`luci-theme-argon` + `luci-app-argon-config`、`luci-app-commands`、`luci-app-package-manager` |
+| 网络 | `dnsmasq-full`、`odhcpd-ipv6only`、`firewall4` + `nftables-json`、`kmod-nft-fullcone`、`kmod-nf-flow`、`sqm-scripts`、`miniupnpd-nftables`（默认关）、`ddns-scripts-{aliyun,cloudflare,dnspod}` |
+| 局域网服务 | `umdns`（mDNS/DNS-SD，仅 `lan`；与 DAWN 配套）、NTP Server（busybox `sysntpd`，仅 `br-lan`） |
 | 5G / 模组 | `kmod-usb-serial-option`、`kmod-usb-net-cdc-ncm`、`kmod-usb-net-qmi-wwan`、`usbutils`、`picocom`、`python3-light` + `python3-pyserial`、`socat` |
-| 无线 | `kmod-mt7915e`、`wpad-openssl`、`iw`、`wireless-regdb`、`wifischedule` |
+| 无线 | `kmod-mt7915e`、`wpad-openssl`、`iw`、`wireless-regdb`、`wifischedule`、`luci-app-dawn`（802.11k/v 漫游；其依赖 `umdns` 同时充当 mDNS/DNS-SD，见 RFC-003） |
 | 风扇 / LED | `kmod-hwmon-pwmfan`、`kmod-gpio-pwm`、`kmod-leds-gpio`、`kmod-ledtrig-network`，加本地包 `fanctl` / `ledctl` |
 | 存储 / overlay | `f2fs-tools`、`kmod-fs-f2fs`、`kmod-fs-ext4`、`block-mount`、`e2fsprogs` |
 | 设备面板 | `luci-app-wtmodem`（模组状态 / 信号 / SIM）、`luci-app-cellscan`（邻区扫描） |
@@ -62,7 +63,8 @@
 | `.github/` | 构建 workflow 与宿主 apt 依赖清单（`apt-deps.txt`） |
 
 补丁与包的设计依据见 `docs/RFC-nradio-c8-native-firmware.md`（RFC-001）与
-`docs/RFC-002-led-fan-packaging.md`（RFC-002）。
+`docs/RFC-002-led-fan-packaging.md`（RFC-002）、`docs/RFC-003-gateway-services.md`（RFC-003，
+mDNS(DNS-SD) / NTP Server / DAWN）。
 `patches/` 里两条补丁均已实机验证（2026-10-01 首刷）：
 `board_name=nradio,c8-668gl`，DTS 的按键 / LED / `gpio-export` 全部按预期注册。
 

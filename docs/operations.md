@@ -168,7 +168,6 @@ logread -e ledctl            # 应看到 "已重载：22:30-07:00 关灯 ..."
 若原厂 GPT 没有 `rootfs_data` 分区，fstools 会走"分区内 loop"路径并要求 `mkfs.f2fs`；旧镜像缺该工具 → 回退 tmpfs（**重启丢配置**）。本机处置：
 
 1. 把原厂 `app_data`(p10) 改名为 `rootfs_data` 并缩到 96MB（`fstools` 对 ≤100MiB 的面积用 `mkfs.ext4`，镜像自带）；
-1. 把原厂 `app_data`(p10) 改名为 `rootfs_data` 并缩到 96MB（`fstools` 对 ≤100MiB 的面积用 `mkfs.ext4`，镜像自带）；
 2. U-Boot `bootargs` 追加 `fstools_partname_fallback_scan=1 fstools_overlay_fstype=ext4`
    （`root=PARTLABEL=` 形式下，`partname.c` 默认跳过同名分区扫描，必须显式打开）
 3. 新版镜像已带 `f2fs-tools`+`kmod-fs-f2fs`：**全新安装**时（无 rootfs_data 分区）会自动用 6.5GB 的分区内 f2fs overlay，无需手工干预；若想在本机切到 6.5GB，执行 `fw_setenv bootargs`（清空）后重启即可。
@@ -201,6 +200,37 @@ mt5700-at --raw 'AT^SIMSQ?'   # SIM 是否在位（第二字段 0=无卡）
 picocom -b 115200 /dev/ttyUSB1
 ```
 
+
+---
+
+## 局域网服务（NTP Server / mDNS / DAWN）（RFC-003）
+
+设计依据见 [`RFC-003`](RFC-003-gateway-services.md)。日常自查：
+
+```sh
+# NTP Server：应只在 br-lan 监听 123（不应出现在 eth1/WAN）
+ss -lnup | grep ':123'
+# mDNS/DNS-SD：5353 应由 umdns 监听（不再装 avahi/dbus）
+ps w | grep -E '[u]mdns|[d]awn'
+ss -lnup | grep 5353
+ubus call umdns browse        # 查看 umdns 在 LAN 上发现的 mDNS 服务
+# DAWN：默认 network_option=2（TCP + umdns 发现）
+uci show dawn | grep -E 'network_option|tcp_port'
+```
+
+常见操作：
+
+| 需求 | 命令 |
+|---|---|
+| 关掉 NTP Server | `uci set system.ntp.enable_server=0 && uci commit system && /etc/init.d/sysntpd restart` |
+| 临时起个 web 终端（仓库已不预置 ttyd） | `apk add ttyd && ttyd -i br-lan -c 用户名:密码 /bin/login`（用完 `apk del ttyd`） |
+| 将来跨 VLAN 反射 mDNS | 加 `mdns-repeater`（约 6 KB），或改用 avahi 并停用 umdns（二者占 5353 互斥） |
+
+> 安全取舍：本固件**不含 ttyd**。内网 HTTP 下 ttyd 会明文传 root 密码与会话，故改用
+> SSH（dropbear，加密）+ LuCI + `luci-app-commands`。LuCI 默认也是 HTTP，登录密码同为明文，
+> 属另一项待办（uhttpd HTTPS）。
+
+> ⚠️ `uci-defaults` 只在**首次启动 / 恢复出厂**时执行；`sysupgrade` 保留配置升级时，本节的新默认值不会自动补上，需手工执行。
 
 ---
 

@@ -94,4 +94,18 @@ if ! uci -q show system 2>/dev/null | grep -q "\.sysfs='blue:power'$"; then
 	uci -q commit system
 fi
 
+# ---- 本地时间服务（NTP Server，供 LAN 客户端对时）----
+# busybox sysntpd 已内建 server 能力（enable_server=1 → ntpd -l -I br-lan）；
+# 只监听 lan，避免在 WAN 上变成 UDP/123 放大面。lan zone 是 input ACCEPT，无需防火墙改动。
+uci -q set system.ntp.enable_server='1'
+uci -q set system.ntp.interface='lan'
+uci -q commit system
+
+# ---- mDNS / DNS-SD：用 OpenWrt 原生的 umdns，不再引入 avahi ----
+# umdns 约 17 KB（依赖 libubox/libubus/blobmsg，均已在包集），且 dawn 本身就依赖它；
+# 它的出厂配置已是 `option jail 1` + `list network lan`，只在 lan 上应答，无需再改。
+# dawn 保持默认 network_option=2（TCP + umdns 发现），两者天然配套。
+# 对比：avahi-dbus-daemon 全家桶（含 dbus）约 485 KB，且有“与 umdns 抢 5353”的互斥问题。
+# 将来若要跨 VLAN 反射 mDNS，再加 `mdns-repeater`（约 6 KB）即可，见 docs/RFC-003。
+
 exit 0
