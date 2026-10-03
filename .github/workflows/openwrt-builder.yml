@@ -177,6 +177,21 @@ jobs:
         [ -e files ] && mv files openwrt/files
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
 
+        # ---- 0. .config 语法自检 ----
+        # 手改 .config 时很容易把 `# CONFIG_X is not set` 写成 `CONFIG_X is not set`
+        # （丢了注释符），Kconfig 解析时会报 `missing separator` 并整轮失败。
+        # 合法行只有三类：空行 / 以 # 开头的注释 / `CONFIG_xxx=...`。
+        # 在这里提前失败，消息也明确（否则要等到 Download package 的 make defconfig）。
+        if [ -f "$OPENWRT/.config" ]; then
+          bad="$(awk 'NF && $0 !~ /^#/ && $0 !~ /^CONFIG_[A-Za-z0-9_.-]+=/' "$OPENWRT/.config")"
+          if [ -n "$bad" ]; then
+            echo "::error::.config 存在非法行（应为注释或 CONFIG_x=...）："
+            echo "$bad" | head -10
+            exit 1
+          fi
+          echo ".config 语法自检通过（$(grep -cE '^CONFIG_[A-Za-z0-9_.-]+=' "$OPENWRT/.config") 个 CONFIG 行）"
+        fi
+
         # ---- 1. 应用机型补丁（NRadio C8 / WT9104）----
         # 补丁是 git 可 diff 的文本（见 docs/RFC-nradio-c8-native-firmware.md §5.2）。
         # git apply 失败必须立即中断：不允许带着“半个补丁”往下跑 2.5 小时。
