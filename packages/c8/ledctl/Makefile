@@ -27,7 +27,7 @@ define Package/ledctl
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=面板指示灯控制 / 夜间定时熄灯（NRadio C8，procd 托管）
-  URL:=https://github.com/nexw/nradio-c8-mt5700-fw
+  URL:=https://github.com/nexw/immortalwrt-c8-fw
   DEPENDS:=+kmod-leds-gpio +kmod-ledtrig-network
   # 纯 shell，目标无关。必须写在 Package 块内：写在块外的全局 PKGARCH
   # 会被 include/package-defaults.mk 里 Package/Default 的

@@ -4,7 +4,7 @@
 - 作者：Johnny（+ AI 协作）
 - 日期：2026-10-01
 - 关联：`docs/refs/device-baseline.md`（实机基线）、`docs/refs/mt7981b-nradio-c8-668gl.immortalwrt.dts`、`docs/refs/platform.filogic.immortalwrt.sh`、`docs/refs/02_network.immortalwrt.sh`、`docs/refs/01_leds.immortalwrt.sh`、`docs/refs/emmc.sh`
-- 施工仓库：`nexw/nradio-c8-mt5700-fw`（2026-10-03 由 `nexw/Actions-OpenWrt` 改名；仍是 P3TERX 模板 fork）
+- 施工仓库：`nexw/immortalwrt-c8-fw`（2026-10-03 独立建库，不再是对 P3TERX 模板的 fork；构建 workflow 仍源自该模板）
 
 ---
 

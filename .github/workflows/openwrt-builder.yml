@@ -1,15 +1,15 @@
 #
-# https://github.com/P3TERX/Actions-OpenWrt
 # File: .github/workflows/openwrt-builder.yml
 # Description: 构建 NRadio C8（WT9104 / C8-688）固件
+#
+# 本 workflow 的骨架演化自 P3TERX/Actions-OpenWrt（MIT，Copyright (c) 2019-2024 P3TERX），
+# 内容已按本机重写；出处说明见仓库 LICENSE 与 README「来源与致谢」。
 #
 name: OpenWrt Builder
 
 on:
-  # 只有 update-checker dispatch 这个事件类型时才触发；不限定 types 的话任何
-  # repository_dispatch 都会拉起一轮 2.5h 构建。
-  repository_dispatch:
-    types: [Source Code Update]
+  # 手动触发即可：构建 pin 到 immortalwrt 发行 tag，上游分支头变化不代表需要重编，
+  # 所以不挂 repository_dispatch（原先由 update-checker 投递，该 workflow 已移除）。
   workflow_dispatch:
 
 # 上传 Release 需 contents:write；Mattraks/delete-workflow-runs 需 actions:write。
@@ -46,6 +46,10 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v5
+      with:
+        # Release 说明要列出「自上一个 tag 以来的提交」，需要完整历史与 tag。
+        # 本仓库很小，全量克隆的代价可以忽略。
+        fetch-depth: 0
 
     - name: Restore ccache
       uses: actions/cache@v5
@@ -327,14 +331,58 @@ jobs:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
-    - name: Generate release tag
+    - name: Generate release tag and notes
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        touch release.txt
-        echo "device: NRadio C8 (WT9104 / C8-688), target: mediatek/filogic" >> release.txt
-        echo "base: immortalwrt @ $BUILD_BRANCH" >> release.txt
+        set -euo pipefail
+        TAG="$(date +'%Y.%m.%d-%H%M')"
+        echo "release_tag=$TAG" >> $GITHUB_OUTPUT
+
+        # 上一个 release = 离 HEAD 最近的可达 tag（checkout 用了 fetch-depth: 0）。
+        # 没有 tag 时（新仓库首轮）走首建分支。
+        PREV="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+        PKGS="$(grep -c '^CONFIG_PACKAGE_.*=y' openwrt/.config 2>/dev/null || echo '?')"
+
+        {
+          echo "NRadio C8（WT9104 / C8-688）固件，基于 ImmortalWrt \`$BUILD_BRANCH\` 构建。"
+          echo
+          echo "## 本次变更"
+          echo
+          if [ -n "$PREV" ]; then
+            echo "自上一版 \`$PREV\` 以来 $GITHUB_REPOSITORY 的提交："
+            echo
+            COMMITS="$(git log --no-merges --pretty='- %s (`%h`)' "$PREV"..HEAD)"
+            if [ -n "$COMMITS" ]; then
+              echo "$COMMITS"
+            else
+              echo "（与上一版相比无代码变更，本次为重新构建）"
+            fi
+          else
+            echo "首次构建，暂无上一版可比。最近提交："
+            echo
+            git log --no-merges -n 20 --pretty='- %s (`%h`)'
+          fi
+          echo
+          echo "## 构建信息"
+          echo
+          echo "| 项 | 值 |"
+          echo "|---|---|"
+          echo "| 设备 | NRadio C8（WT9104 / C8-688），\`nradio,c8-668gl\` |"
+          echo "| 源码 | [immortalwrt]($REPO_URL) @ \`$BUILD_BRANCH\` |"
+          echo "| 配置 | \`.config\` @ \`${GITHUB_SHA:0:8}\`（$PKGS 项包配置） |"
+          echo "| 构建 | \`$ImageOS\` / \`$RUNNER_ARCH\` |"
+          echo "| 时间 | $(date -u +'%Y-%m-%d %H:%M UTC') |"
+          echo
+          echo "## 产物校验"
+          echo
+          echo '```'
+          (cd "$FIRMWARE" && sha256sum ./*) || true
+          echo '```'
+          echo
+          echo '刷机与回滚见仓库 `docs/operations.md`。'
+        } > release.txt
+
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
@@ -344,7 +392,10 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
+        name: NRadio C8 固件 ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
+        # 用自定义说明（提交清单 + 校验和），不要 GitHub 自动生成的 notes
+        generate_release_notes: false
         files: ${{ env.FIRMWARE }}/*
 
     - name: Delete workflow runs

@@ -1,5 +1,10 @@
 MIT License
 
+Copyright (c) 2026 nexw <https://github.com/nexw>
+
+Portions of this project (notably the GitHub Actions workflow skeleton in
+.github/workflows/) are derived from P3TERX/Actions-OpenWrt:
+
 Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

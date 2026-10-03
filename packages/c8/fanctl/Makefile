@@ -28,7 +28,7 @@ define Package/fanctl
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=PWM 风扇温控（NRadio C8，userspace 兜底 + procd 托管）
-  URL:=https://github.com/nexw/nradio-c8-mt5700-fw
+  URL:=https://github.com/nexw/immortalwrt-c8-fw
   DEPENDS:=+kmod-hwmon-pwmfan +kmod-gpio-pwm
   # 纯 shell，目标无关。必须写在 Package 块内：写在块外的全局 PKGARCH
   # 会被 include/package-defaults.mk 里 Package/Default 的

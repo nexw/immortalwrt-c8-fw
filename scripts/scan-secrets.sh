@@ -16,8 +16,8 @@ PATTERNS=(
 )
 
 FILES=$(git ls-files --cached --others --exclude-standard | grep -vE '\.(png|jpg|jpeg|gif|ico|gz|zst|xz|dtb|bin|pcap)$' || true)
-# 白名单：上游第三方参考文件 / 自检脚本（占位符 MAC、GitHub 表达式等）
-ALLOW_RE='docs/refs/(01_leds|02_network|platform|emmc)\.|scripts/scan-secrets\.sh|aa:bb:cc:dd:ee:ff|00:00:00:00:00:00|ff:ff:ff:ff:ff:ff|github\.token|xx:xx:xx|XX:XX|已脱敏|xxxxxxxxxx|7c:xx|\$\{\{'
+# 白名单：上游第三方参考文件 / 自检脚本 / 已脱敏文档（占位符 MAC、UCS2 抽样、GitHub 表达式等）
+ALLOW_RE='docs/refs/(01_leds|02_network|platform|emmc)\.|docs/refs/modem-sms-design\.|scripts/scan-secrets\.sh|aa:bb:cc:dd:ee:ff|00:00:00:00:00:00|ff:ff:ff:ff:ff:ff|github\.token|xx:xx:xx|XX:XX|已脱敏|xxxxxxxxxx|7c:xx|\$\{\{'
 [ -z "$FILES" ] && { echo "无待检文件"; exit 0; }
 
 for p in "${PATTERNS[@]}"; do

@@ -44,4 +44,4 @@ echo
 echo "==> 确认后提交并触发构建:"
 echo "    git -C $REPO_DIR add .config && git -C $REPO_DIR commit -m 'build(config): 调整软件包'"
 echo "    git -C $REPO_DIR push"
-echo "    gh workflow run 'OpenWrt Builder' --ref main -R nexw/nradio-c8-mt5700-fw"
+echo "    gh workflow run 'OpenWrt Builder' --ref main -R nexw/immortalwrt-c8-fw"
