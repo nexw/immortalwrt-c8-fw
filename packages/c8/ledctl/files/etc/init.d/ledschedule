@@ -11,12 +11,13 @@
 #   三者都经 procd_send_signal（实例的 reload_signal=HUP）→ ledctl daemon 收 SIGHUP
 #   原地重读配置与状态、重算下一次唤醒时刻（pid 不变、无 stop_service、无闪烁）。
 #
-# ⚠️ 命令行 `uci commit` **不会**触发 ①（实测）：uci/libuci 在本构建未链 libubus
-#   （`ldd /sbin/uci` 只有 libubox），不发 config.change 事件；`procd_set_param file`
-#   也不能兜底（全机 0 个实例带 file 字段）。这是平台级行为，对所有 OpenWrt 服务一致。
+# ⚠️ 事件由谁发（2026-10-04 实测）：procd 包自带的 /sbin/reload_config（md5 比对
+#   `uci show`，对变更过的包发 config.change；LuCI 的 Save & Apply 就是走它）。
+#   命令行 `uci commit` 自身**不发**事件（本构建 uci/libuci 未链 libubus）→ 只 commit
+#   不会生效；`procd_set_param file` 也不能兜底（全机 0 实例带 file 字段）。
 #   命令行改配置写成两行：
 #     uci set ledschedule.main.off_start='22:30' && uci commit ledschedule
-#     /etc/init.d/ledschedule reload
+#     /sbin/reload_config          # 或只针对本服务：/etc/init.d/ledschedule reload
 START=97
 STOP=10
 USE_PROCD=1

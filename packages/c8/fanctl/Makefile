@@ -8,8 +8,8 @@
 #   * /etc/config/fancontrol 需要在包内声明为 conffile。
 #
 # 配置生效路径（procd 触发器，非重启）：
-#   LuCI / `ubus call uci commit` → config.change 事件 → procd 触发 reload
-#   （命令行 `uci commit` 不发事件：该构建的 uci/libuci 未链 libubus，已实测；需显式 reload）
+#   LuCI / `/sbin/reload_config`（md5 比对后发 config.change）→ procd 触发 reload
+#   （命令行 `uci commit` 自身不发事件：该构建的 uci/libuci 未链 libubus，已实测）
 #   → /etc/init.d/fancontrol reload → reload_service() → procd_send_signal
 #   → fanctl daemon 收到 SIGHUP（实例的 reload_signal=HUP）→ 原地重读配置
 #

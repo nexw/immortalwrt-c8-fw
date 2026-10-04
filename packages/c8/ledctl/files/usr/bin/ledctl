@@ -26,8 +26,8 @@
 #   **事件驱动，不做固定间隔轮询**。守护进程只在四种情况下醒来重算：
 #     ① 时段边界（off_start / off_end，支持跨零点）
 #     ② 手动覆盖到期（manual_hold）
-#     ③ 配置变更：LuCI / `ubus call uci commit` → procd 触发器 → SIGHUP
-#        （命令行 `uci commit` 不发 config.change 事件，需显式 /etc/init.d/ledschedule reload）
+#     ③ 配置变更：LuCI / `/sbin/reload_config` → procd 触发器 → SIGHUP
+#        （命令行 `uci commit` 自身不发事件，需再跑 /sbin/reload_config）
 #     ④ 手动切灯：ledctl off/on/auto/toggle/blink 改完状态后显式 reload
 #   另外 /etc/hotplug.d/ntp/30-ledschedule 在 NTP 校时（时间跳变）后也会 reload。
 #   option max_sleep 是“最长休眠上限”（默认 3600s），纯粹为兜住时钟往回跳的情况；

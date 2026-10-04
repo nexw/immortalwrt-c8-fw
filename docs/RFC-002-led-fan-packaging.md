@@ -91,7 +91,7 @@ START-at-…977   SENDING-HUP-at-…979   WAIT-RETURNED-at-…979 rc=129
 | 把状态写进 UCI，靠 `config.change` 触发 | 每次手动切灯都写 flash（eMMC overlay），且 60 min 内可反复写 |
 | 重启服务 | 触发 `stop_service`，见 §3.1 的闪烁问题 |
 
-**采用：`ledctl` 手动改完状态后调 `/etc/init.d/ledschedule reload`**，与配置变更（LuCI / `ubus call uci commit`）走同一条
+**采用：`ledctl` 手动改完状态后调 `/etc/init.d/ledschedule reload`**，与配置变更（LuCI / `/sbin/reload_config`）走同一条
 （已经是唯一一条）通知路径。守护进程收到 HUP 后重读配置与状态文件、重算下一次唤醒时刻。
 
 守护进程自身不调用这条路径，避免自激。
@@ -114,12 +114,28 @@ START-at-…977   SENDING-HUP-at-…979   WAIT-RETURNED-at-…979 rc=129
 | `procd_set_param file /etc/config/x` | ❌ | 该实例的 ubus JSON 里**无 `file` 字段**；`touch` 与真改内容均无任何反应（全机 0 个实例带该字段） |
 
 根因：**本构建的 `uci`/`libuci` 未链 `libubus`**（`ldd /sbin/uci` 只有 `libubox`），
-所以 CLI 提交不会广播 `config.change`。这是**平台级**行为，对所有 OpenWrt 服务一致
-（`/etc/init.d/ucitrack` 也只负责为**非 procd** 脚本注册同一事件）。
+所以 CLI 提交自身不广播 `config.change`。这是**平台级**行为，对所有 OpenWrt 服务一致。
 
-**结论**：命令行改配置要立即生效，必须显式 `/etc/init.d/<name> reload`
-（与上游 OpenWrt 的既有行为一致）；`ledctl` 的手动切灯本来就走显式 reload，不受影响。
-本仓的 README 与脚本注释均按此修正。
+**真正的广播者是 procd 包自带的 `/sbin/reload_config`**（591 字节 shell，属主 `procd`）：
+它把每个 `/etc/config/*` 的 `uci show` 输出做 md5，与 `/var/run/config.md5` 比对，
+**只对变更过的包**执行
+`ubus call service event '{"type":"config.change","data":{"package":"<name>"}}'`。
+LuCI 的 Save & Apply 走的就是它。实测（2026-10-04）：
+
+```
+uci set ledschedule.main.max_sleep=3603; uci commit ledschedule   → 无反应
+/sbin/reload_config                                              → 「已重载：… 最长休眠 3603s」，pid 不变 ✅
+```
+
+**结论（命令行改配置的正确写法，与 LuCI 等价）**：
+
+```sh
+uci set <pkg>.<sec>.<opt>='...' && uci commit <pkg>
+/sbin/reload_config            # 幂等；首次运行只建立基线，第二次才发事件
+```
+
+只针对单个服务时 `/etc/init.d/<name> reload` 亦可（`ledctl` 的手动切灯本来就走这条）。
+本仓 README / `docs/operations.md` / 脚本注释均按此修正。
 
 ## 4. 改动清单（文件级）
 

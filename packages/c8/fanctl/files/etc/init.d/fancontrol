@@ -9,14 +9,17 @@
 #   → reload_service() → procd_send_signal（实例的 reload_signal=HUP）
 #   → fanctl daemon 收到 SIGHUP 原地重读配置（不断温控、不重启进程，pid 不变）。
 #
-# ⚠️ 事件源很重要 —— 命令行 `uci commit` **不会**触发（实测）：
-#   * uci/libuci 在本构建未链 libubus（`ldd /sbin/uci` 只有 libubox），
-#     不会发出 config.change 事件；这是平台级行为，对所有 OpenWrt 服务一致。
+# ⚠️ 事件由谁发（2026-10-04 实测）：procd 包自带的 /sbin/reload_config ——
+#   它用 md5 比对 `uci show` 的输出，对**变更过的**包发 config.change 事件；
+#   LuCI 的 Save & Apply 走的就是它。
+#   * 命令行 `uci commit` 自身**不发**事件（本构建 uci/libuci 未链 libubus，
+#     `ldd /sbin/uci` 只有 libubox）→ 只 commit 不会生效；这是平台级行为。
 #   * `procd_set_param file` 也不能兜底（实测：全机 0 个实例带 file 字段，改文件无反应）。
-#   会触发的情形：LuCI 页面（经 rpcd 的 uci ubus 对象）、`ubus call uci set/commit`、
-#   或显式 `/etc/init.d/fancontrol reload`。所以命令行改配置写成两行：
-#     uci set fancontrol.main.interval='5' && uci commit fancontrol
-#     /etc/init.d/fancontrol reload
+#   命令行改配置的正确写法（与 LuCI 等价）：
+#     uci set <pkg>.<sec>.<opt>='...' && uci commit <pkg>
+#     /sbin/reload_config          # 触发所有变更包的触发器（可反复执行，幂等）
+#   只针对本服务时用 /etc/init.d/<name> reload 亦可。
+#   注：reload_config 首次运行只建立 /var/run/config.md5 基线，第二次才发事件。
 #
 START=96
 STOP=10
