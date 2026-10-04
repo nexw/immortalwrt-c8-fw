@@ -5,7 +5,7 @@
 # 无版本无依赖、/etc/config 需要 conffile）。
 #
 # 配置生效路径（procd 触发器，非重启）：
-#   uci commit ledschedule  → /etc/config/ledschedule 变更 → procd 触发 reload
+#   LuCI / `ubus call uci commit` → config.change 事件 → procd 触发 reload
 #   ledctl off|on|auto|blink → 改完 /var/run/ledschedule.state 后显式
 #                              /etc/init.d/ledschedule reload
 #   NTP 校时（时间跳变）    → /etc/hotplug.d/ntp/30-ledschedule → reload

@@ -35,8 +35,12 @@ DTS 里已有 `pwm-fan` 节点（`pwmchip0/pwm0`，25 kHz），但 `cpu-thermal`
   > `kernel_driver` 改成 `yield`。
 - `etc/init.d/fancontrol`：procd 托管（退出后 5 s 重启，1 h 内最多 5 次），`START=96`
   （在 95 的 `fanfallback` 之后接管）；带 `service_triggers()` + 实例级
-  `reload_signal=HUP`，所以 `uci commit fancontrol` 会**原地重载**配置（进程不重启、
+  `reload_signal=HUP`：配置变更经 `config.change` 触发器 → 原地重载（进程不重启、
   温控不中断）。改造前是“改完必须手动 `/etc/init.d/fancontrol restart`”。
+  > ⚠️ **命令行 `uci commit` 不会触发**（2026-10-04 真机实测）：本构建的 `uci`/`libuci`
+  > 未链 `libubus`，不发 `config.change` 事件；`procd_set_param file` 也不能兜底。
+  > LuCI 页面改配置会自动重载；命令行请显式 `/etc/init.d/fancontrol reload`。
+  > 机理与证据见 `docs/RFC-002-led-fan-packaging.md` §3.5。
 - `etc/config/fancontrol`：间隔、曲线、下限/上限、迟滞、降幅、硬阈值均可调；它是本包的
   **conffile**，升级时保留本地修改。
 - 包依赖 `+kmod-hwmon-pwmfan +kmod-gpio-pwm` 由 `DEPENDS` 自动拉入（原来靠手写 `.config`）。
@@ -55,9 +59,12 @@ fanctl status     # 模式 / CPU 温度 / 当前占空比 / 风扇供电 / 目�
 fanctl curve      # 查看生效曲线
 fanctl set 80     # 手动打到 80%（下一个温控循环会按曲线纠正）
 fanctl auto       # 立刻交回自动温控（按当前温度设一次，之后由守护进程接管）
-# 改配置：commit 即生效（procd 触发器 → SIGHUP → 原地重载），不再需要 restart
+# 改配置（两种方式）：
+#   a) LuCI 页面改 → 自动原地重载
+#   b) 命令行：commit 后必须显式 reload（本构建 uci 不发 config.change，见 RFC-002 §3.5）
 uci set fancontrol.main.interval='5' && uci commit fancontrol
-logread -e fanctl        # 应看到 "配置已重载：interval=5s ..."
+/etc/init.d/fancontrol reload
+logread -e fanctl        # 应看到 “配置已重载：interval=5s ...”，且进程 pid 不变
 ```
 
 LuCI 里也预置了三个「风扇」快捷命令（`luci-app-commands` → 系统 → 命令）。
@@ -111,7 +118,8 @@ LuCI 里也预置了三个「风扇」快捷命令（`luci-app-commands` → 系
   `service_triggers()` + 实例级 `reload_signal=HUP`。
 - **事件驱动，不做固定间隔轮询**（v1.1 起，见 `docs/RFC-002-led-fan-packaging.md`）。
   守护进程只在四种情况下醒来重算：① 时段边界（支持跨零点）② 手动覆盖到期
-  ③ 配置变更（`uci commit` → procd 触发器 → SIGHUP）④ 手动切灯
+  ③ 配置变更（LuCI 页面 / `ubus call uci commit` → procd 触发器 → SIGHUP；命令行
+  `uci commit` 不发事件，需显式 `/etc/init.d/ledschedule reload`）④ 手动切灯
   （`ledctl off/on/auto/blink` 改完状态后显式 reload）。另外
   `etc/hotplug.d/ntp/30-ledschedule` 在 NTP 校时（时间跳变）后也会 reload。
   **不用 cron 也不用轮询**：原来那个 60 s 轮询是为了兜住“开机时刻 / NTP 跳变 /
@@ -120,8 +128,10 @@ LuCI 里也预置了三个「风扇」快捷命令（`luci-app-commands` → 系
   > 时间往回跳时最多晚一个上限才发现。设 `0` 即完全不限（纯事件驱动）。这是有意的
   > 取舍，不把时段正确性完全押在单一外部事件上。
 - `etc/config/ledschedule`：时段、`max_sleep`、手动覆盖时长、受控 LED 列表均可调；
-  改完 `uci commit` 即时生效（无需重启服务）。`option interval`（轮询间隔）已废弃，
-  残留时守护进程会在日志里提示一次。
+  改完（`uci commit` + `/etc/init.d/ledschedule reload`）即时生效，无需重启服务。
+  `option interval`（轮询间隔）已废弃，残留时守护进程会在日志里提示一次。
+
+真机验收记录（2026-10-04，含精确到秒的边界取证）见 `docs/RFC-002-led-fan-packaging.md` §5。
 
 ```sh
 ledctl status      # 时段 / 模式 / 每个 LED 的 trigger、brightness、恢复来源
@@ -132,9 +142,10 @@ ledctl auto        # 取消手动覆盖，立即按时段执行
 ledctl toggle
 ledctl blink blue:power 20   # 让某颗灯闪 20 s，用来辨认面板上到底是哪一颗
 
-# 改配置：commit 即生效（触发器原地重载，不用等下一个轮询周期）
+# 改配置：commit 后显式 reload（命令行 uci 不发 config.change 事件，见 RFC-002 §3.5）
 uci set ledschedule.main.off_start='22:30' && uci commit ledschedule
-logread -e ledctl            # 应看到 "已重载：22:30-07:00 关灯 ..."
+/etc/init.d/ledschedule reload
+logread -e ledctl            # 应看到 “已重载：22:30-07:00 关灯 ...”，pid 不变
 ```
 
 手动覆盖不会一直卡住：到期时间 = `min(现在 + manual_hold 分钟, 下一个时段边界)`，

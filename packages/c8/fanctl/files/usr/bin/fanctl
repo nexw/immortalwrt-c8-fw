@@ -14,8 +14,10 @@
 # 若 DTS 给风扇绑了 cooling-map、想交回内核 governor，把该项设为 'yield' 即可。
 #
 # 配置生效（v1.1 起走 procd 触发器，见 docs/RFC-002-led-fan-packaging.md）：
-#   uci commit fancontrol → /etc/init.d/fancontrol reload → procd_send_signal
-#   → 本进程收到 SIGHUP → 原地重读 /etc/config/fancontrol（不重启、不断温控）。
+#   LuCI / `ubus call uci commit` → config.change 事件 → /etc/init.d/fancontrol reload
+#   → procd_send_signal → 本进程收到 SIGHUP → 原地重读 /etc/config/fancontrol
+#   （不重启、不断温控）。命令行 `uci commit` 不发 config.change 事件
+#   （该构建 uci 未链 libubus，已实测），需显式 /etc/init.d/fancontrol reload。
 #
 # 用法：
 #   fanctl daemon        前台常驻温控循环（由 /etc/init.d/fancontrol 经 procd 拉起）

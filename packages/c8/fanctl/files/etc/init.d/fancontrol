@@ -5,10 +5,18 @@
 # START=96 表示在 fanfallback(95) 之后启动：fanfallback 只做开机 50% 兜底，
 # 本服务随后按温度曲线接管。
 #
-# 配置生效走 procd 触发器，不靠重启：
-#   uci commit fancontrol → /etc/config/fancontrol 变更 → procd 触发 reload
+# 配置生效（2026-10-04 真机实测）：procd 的 config.change 触发器 → reload
 #   → reload_service() → procd_send_signal（实例的 reload_signal=HUP）
-#   → fanctl daemon 收到 SIGHUP 原地重读配置（不断温控、不重启进程）。
+#   → fanctl daemon 收到 SIGHUP 原地重读配置（不断温控、不重启进程，pid 不变）。
+#
+# ⚠️ 事件源很重要 —— 命令行 `uci commit` **不会**触发（实测）：
+#   * uci/libuci 在本构建未链 libubus（`ldd /sbin/uci` 只有 libubox），
+#     不会发出 config.change 事件；这是平台级行为，对所有 OpenWrt 服务一致。
+#   * `procd_set_param file` 也不能兜底（实测：全机 0 个实例带 file 字段，改文件无反应）。
+#   会触发的情形：LuCI 页面（经 rpcd 的 uci ubus 对象）、`ubus call uci set/commit`、
+#   或显式 `/etc/init.d/fancontrol reload`。所以命令行改配置写成两行：
+#     uci set fancontrol.main.interval='5' && uci commit fancontrol
+#     /etc/init.d/fancontrol reload
 #
 START=96
 STOP=10
@@ -44,7 +52,9 @@ reload_service() {
 }
 
 service_triggers() {
-	# /etc/config/fancontrol 一变就 reload；缺这段时改完配置必须手动 restart
+	# config.change 触发器（事件由 LuCI/rpcd 的 uci ubus 对象或显式 ubus 调用产生；
+	# 命令行 `uci commit` 不产生事件，见文件头）。它只是把 reload 请求接进来，
+	# 真正的重载动作在 reload_service()。
 	procd_add_reload_trigger fancontrol
 }
 

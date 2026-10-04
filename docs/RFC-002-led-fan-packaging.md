@@ -25,7 +25,8 @@
 ## 2. 目标 / 非目标
 
 **目标**
-- G1 配置生效走 procd 触发器：`uci commit` → 服务原地重载，**不重启进程、不打断控制**。
+- G1 配置生效走 procd 触发器：`config.change` 事件 → 服务原地重载，**不重启进程、不打断控制**。
+  （事件源限制见 §3.5：**命令行 `uci commit` 不发事件**，2026-10-04 真机实测）
 - G2 `ledschedule` 改为事件驱动：只在「时段边界 / 手动覆盖到期 / 配置变更 / NTP 校时」醒来，取消固定轮询。
 - G3 两项功能各做成 apk 包（本地 feed `nrlocal`），声明 `DEPENDS`、声明 conffile。
 - G4 行为对用户可见面**零变化**：命令用法、UCI 选项名（除一个）、日志含义、LED/风扇的最终状态全部保持一致。
@@ -43,8 +44,8 @@ procd 提供两条路，都能实现"配置改了要生效"：
 
 | 方案 | 机制 | 结果 |
 |---|---|---|
-| `procd_set_param file /etc/config/x` | procd 监视文件 mtime，变更即**重启实例** | 简单，但重启 = 一次 `stop_service` |
-| `service_triggers()` + `reload_signal` | `uci commit` 触发 `/etc/init.d/x reload` → `procd_send_signal` 发 HUP → 进程**原地重载** | 无中断、无 `stop_service` 副作用 |
+| `procd_set_param file /etc/config/x` | procd 监视文件 mtime，变更即**重启实例** | 简单，但重启 = 一次 `stop_service`；**实测在本构建根本不生效**，见 §3.5 |
+| `service_triggers()` + `reload_signal` | `config.change` 事件触发 `/etc/init.d/x reload` → `procd_send_signal` 发 HUP → 进程**原地重载** | 无中断、无 `stop_service` 副作用；**事件源有限制，见 §3.5** |
 
 **选后者。** 理由是 `stop_service` 有副作用：`ledschedule` 的 `stop_service` 会把灯交还给"开"
 （原设计意图：停服务不要留一屋黑灯）。若采用"重启"路线，用户在 10:00 手动 `ledctl off` 时
@@ -90,7 +91,7 @@ START-at-…977   SENDING-HUP-at-…979   WAIT-RETURNED-at-…979 rc=129
 | 把状态写进 UCI，靠 `config.change` 触发 | 每次手动切灯都写 flash（eMMC overlay），且 60 min 内可反复写 |
 | 重启服务 | 触发 `stop_service`，见 §3.1 的闪烁问题 |
 
-**采用：`ledctl` 手动改完状态后调 `/etc/init.d/ledschedule reload`**，与 `uci commit` 走同一条
+**采用：`ledctl` 手动改完状态后调 `/etc/init.d/ledschedule reload`**，与配置变更（LuCI / `ubus call uci commit`）走同一条
 （已经是唯一一条）通知路径。守护进程收到 HUP 后重读配置与状态文件、重算下一次唤醒时刻。
 
 守护进程自身不调用这条路径，避免自激。
@@ -99,6 +100,26 @@ START-at-…977   SENDING-HUP-at-…979   WAIT-RETURNED-at-…979 rc=129
 
 `option interval` 语义已变（不再是"轮询间隔"），改名 `option max_sleep`。
 残留 `interval` 不会影响功能（新代码不读它），仅在重载时打一条迁移提示。
+
+### 3.5 「触发器」的事件源限制（2026-10-04 真机实测，重要修正）
+
+`procd_add_reload_trigger` 只负责**订阅** `config.change` 事件；事件本身由**调用方**产生。
+本 RFC 初稿把「`uci commit` → 触发器」当成必然，实测不成立：
+
+| 触发方式 | 触发 reload？ | 证据（设备实测） |
+|---|---|---|
+| LuCI 页面改配置（走 rpcd 的 `uci` ubus 对象） | ✅ | `ubus call uci set`+`commit` → `logread` 出现「已重载：16:42-16:43 关灯」，pid 不变 |
+| `ubus call service event '{"type":"config.change","data":{"package":"ledschedule"}}'` | ✅ | 手工发事件 → ledctl 与 fanctl 均立刻原地重载 |
+| **命令行 `uci set … && uci commit …`** | ❌ | 抓 ubus 事件流（先用 `ubus send` 自证抓取有效）：**一个事件都没有** |
+| `procd_set_param file /etc/config/x` | ❌ | 该实例的 ubus JSON 里**无 `file` 字段**；`touch` 与真改内容均无任何反应（全机 0 个实例带该字段） |
+
+根因：**本构建的 `uci`/`libuci` 未链 `libubus`**（`ldd /sbin/uci` 只有 `libubox`），
+所以 CLI 提交不会广播 `config.change`。这是**平台级**行为，对所有 OpenWrt 服务一致
+（`/etc/init.d/ucitrack` 也只负责为**非 procd** 脚本注册同一事件）。
+
+**结论**：命令行改配置要立即生效，必须显式 `/etc/init.d/<name> reload`
+（与上游 OpenWrt 的既有行为一致）；`ledctl` 的手动切灯本来就走显式 reload，不受影响。
+本仓的 README 与脚本注释均按此修正。
 
 ## 4. 改动清单（文件级）
 
@@ -146,18 +167,23 @@ configuration` 步骤（原 `diy-part2.sh` 内联而来）里已有的「本地�
 3. 产物中 `apk list --installed` 含 `fanctl`、`ledctl`，且 `/lib/apk/db/installed` 里能查到
    `/usr/bin/fanctl`、`/etc/init.d/fancontrol` 的属主。
 
-刷机侧：
+刷机侧（★ = 2026-10-04 已在真机上执行并记录结果）：
 
-| # | 动作 | 期望 |
-|---|---|---|
-| 1 | `fanctl status` | 与改造前一致（`mode: hwmon-pwmfan`，占空比跟随温度） |
-| 2 | `uci set fancontrol.main.interval='5' && uci commit fancontrol` | `logread` 出现 fanctl 的"配置已重载"，**没有**实例重启日志（`ps` 里 pid 不变） |
-| 3 | `ledctl status` / `ledctl schedule` | 输出与改造前一致 |
-| 4 | `uci set ledschedule.main.off_start='22:30' && uci commit` | `ledctl status` 立即可见新时段（无需等 60 s） |
-| 5 | 跨过 `off_start` | 灯按时熄，`logread` 只有一条 "关灯（定时）" |
-| 6 | `ledctl off` 后 `ledctl status` | `manual` 且立刻生效；`logread` 无"开灯→关灯"抖动 |
-| 7 | `date -s` 模拟（或等 NTP） | 热插拔触发 reload，下一次唤醒时刻被重算 |
-| 8 | `/etc/init.d/ledschedule stop` | 与改造前一致：灯交还给"开"，无残留 |
+| # | 动作 | 期望 | 实测 |
+|---|---|---|---|
+| 1 ★ | `fanctl status` | `mode: hwmon-pwmfan`，占空比跟随温度 | ✅ `73.1C / 186/255=72%`，日志持续跟随 |
+| 2 ★ | `ubus call uci set/commit` 改 `fancontrol.main.interval`（或 `uci commit` 后显式 `reload`） | `logread` 出现「配置已重载」，pid 不变 | ✅ fanctl「配置已重载：interval=10s …」，pid 4889 不变 |
+| 3 ★ | `ledctl status` / `ledctl schedule` | 输出与改造前一致，且显示「最长休眠 3600s」 | ✅ |
+| 4 ★ | 同上方式把 `off_start/off_end` 改到 2 分钟后 | 立即原地重载（无需等 60 s） | ✅ ledctl「已重载：16:42-16:43 关灯」，pid 12211 不变 |
+| 5 ★ | 跨过 `off_start` / `off_end` | 灯按时熄/亮，`logread` 各一条「关灯/开灯（定时）」 | ✅ **16:42:01 关灯（定时） / 16:43:00 开灯（定时）——精确到秒** |
+| 6 ★ | `ledctl off` / `on` / `auto` | `manual` 且立刻生效；全程不走 `stop_service` | ✅ `mode=manual…到期`；pid 不变；`logread` 无「已停止」 |
+| 7 ★ | `ACTION=stratum /etc/hotplug.d/ntp/30-ledschedule` | 触发 reload，下一次唤醒时刻被重算 | ✅ 「已重载：…」；钩子以 0755 安装 |
+| 8 | `/etc/init.d/ledschedule stop` | 灯交还给当前时段状态，无残留 | 未测（需真停服务） |
+| 9 ★ | apk 归属与 conffile | 5 个文件均 `owned by fanctl/ledctl-1.1.0-r1` | ✅ 含 `conffiles` 里的两个 /etc/config |
+| 10 ★ | procd 运行时注册 | 实例带 `reload_signal: 1` 且挂着 `config.change` 触发器 | ✅ `ubus call service list` 已确认 |
+
+> 另：`blue:power` 灯段的文档漂移已同步修正（见 §6）；`fanctl` 的 `STATE` 文件显示当前档位，
+> 因 3 ℃ 迟滞而高于曲线瞬时值，属设计行为（防止温度小幅波动导致转速振荡）。
 
 ## 6. 顺带修正的文档漂移
 
@@ -173,6 +199,7 @@ configuration` 步骤（原 `diy-part2.sh` 内联而来）里已有的「本地�
 
 | 风险 | 等级 | 缓解 |
 |---|---|---|
+| **触发器的 `config.change` 事件源不存在** | **高（已发生并修正）** | 见 §3.5：本构建 `uci`/`libuci` 无 `libubus`，命令行 `uci commit` 不发事件；`procd_set_param file` 也不生效。README 与脚本注释已改为「改配置后显式 `/etc/init.d/x reload`」，并保留 `service_triggers()`（LuCI/rpcd 路径真实有效）。**教训：把「某个事件一定会发生」当设计前提之前，先实测事件流** |
 | 守护进程 SIGHUP 处理不当导致进程被杀 | 中 | `trap` 必须在进入循环前设置；`reload_signal HUP` 只发给实例 pid |
 | 事件驱动漏掉边界（时钟跳变） | 中 | ntp 热插拔 hook + `max_sleep` 兜底（默认 1 h） |
 | 包化后路径/权限变化导致刷机后不可执行 | 低 | 用 `$(INSTALL_BIN)`（0755）；对照 RFC-001 已踩过的"files/ 可执行位丢失"坑 |

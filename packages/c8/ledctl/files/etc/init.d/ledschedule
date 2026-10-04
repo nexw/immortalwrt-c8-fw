@@ -4,12 +4,19 @@
 #
 # START=97：在 led(96) 之后启动，保证能覆盖 led 服务刚应用的默认状态。
 #
-# 配置/状态生效走 procd 触发器，不靠重启：
-#   uci commit ledschedule   → procd 触发 reload
-#   ledctl off|on|auto|blink → 改完 /var/run/ledschedule.state 后显式 reload
-#   NTP 校时（/etc/hotplug.d/ntp/30-ledschedule）→ reload
-#   三条都落到 procd_send_signal（实例的 reload_signal=HUP）→ ledctl daemon
-#   收 SIGHUP 原地重读配置与状态，并重算下一次唤醒时刻。
+# 配置/状态生效（2026-10-04 真机实测）：三条路径都落到同一个 reload：
+#   ① LuCI 页面 / `ubus call uci set,commit` → procd 的 config.change 触发器 → reload
+#   ② `ledctl off|on|auto|blink` → 改完 /var/run/ledschedule.state 后显式 reload
+#   ③ NTP 校时（/etc/hotplug.d/ntp/30-ledschedule）→ reload
+#   三者都经 procd_send_signal（实例的 reload_signal=HUP）→ ledctl daemon 收 SIGHUP
+#   原地重读配置与状态、重算下一次唤醒时刻（pid 不变、无 stop_service、无闪烁）。
+#
+# ⚠️ 命令行 `uci commit` **不会**触发 ①（实测）：uci/libuci 在本构建未链 libubus
+#   （`ldd /sbin/uci` 只有 libubox），不发 config.change 事件；`procd_set_param file`
+#   也不能兜底（全机 0 个实例带 file 字段）。这是平台级行为，对所有 OpenWrt 服务一致。
+#   命令行改配置写成两行：
+#     uci set ledschedule.main.off_start='22:30' && uci commit ledschedule
+#     /etc/init.d/ledschedule reload
 START=97
 STOP=10
 USE_PROCD=1
@@ -33,6 +40,8 @@ reload_service() {
 }
 
 service_triggers() {
+	# 对应上面路径 ①；事件由 LuCI/rpcd 的 uci ubus 对象或显式 ubus 调用产生
+	# （命令行 `uci commit` 不产生，见文件头）。
 	procd_add_reload_trigger ledschedule
 }
 

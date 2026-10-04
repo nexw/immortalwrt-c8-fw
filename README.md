@@ -52,6 +52,9 @@
 | 设备面板 | `luci-app-wtmodem`（模组状态 / 信号 / SIM）、`luci-app-cellscan`（邻区扫描） |
 | 监控 / 运维 | `collectd` + `luci-app-statistics`、`nlbwmon`、`lldpd`、`watchcat`、`luci-app-wol` + `etherwake`、`htop`、`tmux`、`iperf3`、`tcpdump` |
 
+> 本地包 `fanctl` / `ledctl` 的配置：LuCI 页面改会自动原地重载；**命令行 `uci commit` 后需显式
+> `/etc/init.d/<name> reload`**（本构建 `uci` 不发 `config.change` 事件，机理与实测见 `docs/RFC-002` §3.5）。
+
 ## 本仓库对上游的改动
 
 | 路径 | 内容 |
